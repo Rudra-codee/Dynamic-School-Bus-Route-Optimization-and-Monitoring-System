@@ -83,18 +83,38 @@ Frontend will be live at: `http://localhost:5173`
 ## 🏗️ Architecture
 
 ```
-school-bus-platform/
+school-bus-system/
+│
 ├── backend/
-│   ├── app/
-│   │   ├── core/           # Config, DB connection, base entity
-│   │   ├── models/         # SQLAlchemy ORM models
-│   │   ├── schemas/        # Pydantic request/response schemas
-│   │   ├── routes/         # FastAPI route handlers (controllers)
-│   │   ├── services/       # Business logic layer
-│   │   │   └── optimization/  # Route optimization strategies
-│   │   └── utils/          # Factories, helpers
-│   └── alembic/            # Database migrations
-└── frontend/               # React application
+│ ├── src/
+│ │ ├── controllers/
+│ │ ├── factories/
+│ │ ├── middleware/
+│ │ ├── models/
+│ │ ├── patterns/
+│ │ ├── routes/
+│ │ ├── services/
+│ │ ├── app.ts
+│ │ └── server.ts
+│ │
+│ ├── .env
+│ ├── package.json
+│ ├── package-lock.json
+│ └── tsconfig.json
+│
+├── frontend/
+│ ├── src/
+│ ├── public/
+│ ├── .env
+│ ├── index.html
+│ ├── package.json
+│ ├── package-lock.json
+│ ├── tailwind.config.js
+│ ├── postcss.config.js
+│ ├── vite.config.ts
+│ └── tsconfig*.json
+│
+└── README.md
 ```
 
 ### Design Patterns
