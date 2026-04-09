@@ -38,8 +38,8 @@ Traditional school transportation systems use fixed routes and static schedules 
 | Member | Role | Responsibilities |
 |--------|------|-----------------|
 | Rudraksh Rathod | Backend Lead | Project scaffold, DB models, migrations, base classes |
-| Member 2 | Route Engine | Optimization algorithm, route APIs, traffic simulation |
-| Member 3 | Monitoring & Alerts | Bus tracking, boarding logs, alert service |
+| Viraj Chafale | Route Engine | Optimization algorithm, route APIs, traffic simulation |
+| Krishna Duble | Monitoring & Alerts | Bus tracking, boarding logs, alert service |
 | Bhargav Patil | Frontend | React UI, auth flow, all pages |
 | Kaustubh Hiwanj | Design & Docs | Design patterns, UML diagrams, project report |
 
