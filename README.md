@@ -14,17 +14,22 @@ Traditional school transportation systems use fixed routes and static schedules 
 
 ---
 
-## 🛠️ Tech Stack
+## 🚀 Tech Stack
 
-| Layer       | Technology              |
-|-------------|-------------------------|
-| Backend     | Python 3.11 + FastAPI   |
-| ORM         | SQLAlchemy 2.0          |
-| Database    | PostgreSQL              |
-| Migrations  | Alembic                 |
-| Frontend    | React + Tailwind CSS    |
-| Auth        | JWT (python-jose)       |
-| Testing     | pytest + pytest-asyncio |
+| Layer            | Technology                                      |
+|------------------|-------------------------------------------------|
+| Frontend         | React (Vite + TypeScript), Tailwind CSS         |
+| Backend          | Node.js, Express.js (TypeScript)                |
+| Database         | MongoDB                                         |
+| ORM/ODM          | Mongoose                                        |
+| Authentication   | JWT, bcrypt                                     |
+| API Communication| REST APIs (JSON), Axios                         |
+| Routing(Frontend)| React Router                                    |
+| Architecture     | Layered (Controller → Service → Model)          |
+| Design Patterns  | Strategy, Factory, Observer                     |
+| State Management | React Hooks                                     |
+| Tools            | VS Code, Git, GitHub                            |
+| Environment      | dotenv                                          |
 
 ---
 
