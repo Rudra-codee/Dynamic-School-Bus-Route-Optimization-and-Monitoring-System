@@ -1,4 +1,5 @@
 import User, { IUser, UserRole } from '../models/user.model';
+import bcrypt from 'bcryptjs';
 
 /**
  * Factory class for creating Users
@@ -8,12 +9,13 @@ import User, { IUser, UserRole } from '../models/user.model';
 export class UserFactory {
   /**
    * Creates a Mongoose User document based on the requested role.
+   * Hashes the password before creating the document.
    * 
    * @param role The type of user to create ('ADMIN', 'DRIVER', 'PARENT', 'STUDENT')
    * @param userData The user data payload
    * @returns A new, unsaved Mongoose Document
    */
-  static createUser(role: UserRole | string, userData: Partial<IUser>): import('mongoose').Document<unknown, {}, IUser> & IUser {
+  static async createUser(role: UserRole | string, userData: Partial<IUser>): Promise<import('mongoose').Document<unknown, {}, IUser> & IUser> {
     // Validate role constraint before instantiation
     const validRoles = Object.values(UserRole) as string[];
     const normalizedRole = role.toUpperCase();
@@ -28,9 +30,16 @@ export class UserFactory {
       // e.g. console.warn('Note: Driver emails usually follow @driver domain');
     }
 
+    // Hash the password if provided
+    let hashedPassword = userData.password;
+    if (userData.password) {
+      hashedPassword = await bcrypt.hash(userData.password, 12);
+    }
+
     // Construct the Mongoose User Document
     const userInstance = new User({
       ...userData,
+      password: hashedPassword,
       role: normalizedRole
     });
 

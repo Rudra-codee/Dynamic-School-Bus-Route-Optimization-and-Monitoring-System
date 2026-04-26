@@ -1,11 +1,21 @@
 import React from 'react';
 import { Outlet, Link, useLocation } from 'react-router-dom';
-import { Bus, Users, ShieldAlert, ArrowLeft, LogOut } from 'lucide-react';
+import { Bus, Users, ShieldAlert, ArrowLeft, LogOut, Settings, BarChart3 } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
 
 const DashboardLayout: React.FC = () => {
   const location = useLocation();
   const { user, logout } = useAuth();
+
+  const navLinkClass = (path: string) =>
+    `flex items-center gap-3 px-4 py-3 rounded-lg transition-all font-semibold ${
+      location.pathname === path
+        ? 'bg-yellow-50 text-gray-900 border border-yellow-400/50 shadow-sm'
+        : 'text-gray-500 hover:text-gray-900 hover:bg-gray-50 border border-transparent'
+    }`;
+
+  const iconClass = (path: string) =>
+    `w-5 h-5 ${location.pathname === path ? 'text-yellow-600' : ''}`;
 
   return (
     <div className="min-h-screen bg-[#FFFDF5] text-gray-900 flex flex-col md:flex-row font-sans">
@@ -20,45 +30,30 @@ const DashboardLayout: React.FC = () => {
 
         <nav className="flex-1 space-y-2">
           {user?.role === 'DRIVER' && (
-            <Link
-              to="/driver"
-              className={`flex items-center gap-3 px-4 py-3 rounded-lg transition-all font-semibold ${
-                location.pathname === '/driver' 
-                  ? 'bg-yellow-50 text-gray-900 border border-yellow-400/50 shadow-sm' 
-                  : 'text-gray-500 hover:text-gray-900 hover:bg-gray-50 border border-transparent'
-              }`}
-            >
-              <Bus className={`w-5 h-5 ${location.pathname === '/driver' ? 'text-yellow-600' : ''}`} />
+            <Link to="/driver" className={navLinkClass('/driver')}>
+              <Bus className={iconClass('/driver')} />
               <span>Driver Portal</span>
             </Link>
           )}
           
           {user?.role === 'PARENT' && (
-            <Link
-              to="/parent"
-              className={`flex items-center gap-3 px-4 py-3 rounded-lg transition-all font-semibold ${
-                location.pathname === '/parent' 
-                  ? 'bg-yellow-50 text-gray-900 border border-yellow-400/50 shadow-sm' 
-                  : 'text-gray-500 hover:text-gray-900 hover:bg-gray-50 border border-transparent'
-              }`}
-            >
-              <Users className={`w-5 h-5 ${location.pathname === '/parent' ? 'text-yellow-600' : ''}`} />
+            <Link to="/parent" className={navLinkClass('/parent')}>
+              <Users className={iconClass('/parent')} />
               <span>Parent Portal</span>
             </Link>
           )}
 
           {user?.role === 'ADMIN' && (
-            <Link
-              to="/admin"
-              className={`flex items-center gap-3 px-4 py-3 rounded-lg transition-all font-semibold ${
-                location.pathname === '/admin' 
-                  ? 'bg-yellow-50 text-gray-900 border border-yellow-400/50 shadow-sm' 
-                  : 'text-gray-500 hover:text-gray-900 hover:bg-gray-50 border border-transparent'
-              }`}
-            >
-              <ShieldAlert className={`w-5 h-5 ${location.pathname === '/admin' ? 'text-yellow-600' : ''}`} />
-              <span>Admin Portal</span>
-            </Link>
+            <>
+              <Link to="/admin" className={navLinkClass('/admin')}>
+                <BarChart3 className={iconClass('/admin')} />
+                <span>Dashboard</span>
+              </Link>
+              <Link to="/admin/manage" className={navLinkClass('/admin/manage')}>
+                <Settings className={iconClass('/admin/manage')} />
+                <span>Manage Fleet</span>
+              </Link>
+            </>
           )}
         </nav>
 

@@ -41,7 +41,7 @@ Traditional school transportation systems use fixed routes and static schedules 
 | Viraj Chafale | Route Engine | Optimization algorithm, route APIs, traffic simulation |
 | Krishna Duble | Monitoring & Alerts | Bus tracking, boarding logs, alert service |
 | Bhargav Patil | Frontend | React UI, auth flow, all pages |
-| Kaustubh Hiwanj | Design & Docs | Design patterns, UML diagrams, project report |
+| Kaustubh Hiwanj | Design & Docs | Design patterns, project report |
 
 ---
 

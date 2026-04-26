@@ -1,10 +1,11 @@
 import React, { useEffect, useRef, useState, useCallback } from 'react';
-import axios from 'axios';
-import { MapContainer, TileLayer, Marker, Popup, useMap } from 'react-leaflet';
+import api from '../api/axios';
+import { MapContainer, TileLayer, Marker, Popup, Polyline, useMap } from 'react-leaflet';
 import L from 'leaflet';
 import 'leaflet/dist/leaflet.css';
-import { RefreshCw, CheckCircle, Clock, MapPin, Wifi, WifiOff, Users, UserCheck, UserX, Loader2 } from 'lucide-react';
+import { RefreshCw, CheckCircle, Clock, MapPin, Wifi, WifiOff, Users, UserCheck, UserX, Loader2, AlertCircle } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
+import { useToast } from '../context/ToastContext';
 
 // Fix default marker icons broken by Vite/webpack bundling
 import markerIcon2x from 'leaflet/dist/images/marker-icon-2x.png';
@@ -13,8 +14,6 @@ import markerShadow from 'leaflet/dist/images/marker-shadow.png';
 delete (L.Icon.Default.prototype as any)._getIconUrl;
 L.Icon.Default.mergeOptions({ iconRetinaUrl: markerIcon2x, iconUrl: markerIcon, shadowUrl: markerShadow });
 
-const API_BASE_URL = import.meta.env.VITE_API_URL as string;
-const MOCK_BUS_ID = '609b11111111111111111111';
 const POLL_INTERVAL = 5000;
 
 // Component to fly the map to updated coords
@@ -28,15 +27,23 @@ const MapPanner: React.FC<{ lat: number; lng: number }> = ({ lat, lng }) => {
 
 type AttendanceStatus = 'PRESENT' | 'ABSENT' | null;
 
-interface Student {
+interface StudentInfo {
   id: string;
   name: string;
   email: string;
+  location?: { lat: number; lng: number };
+}
+
+interface ChildBusInfo {
+  student: StudentInfo;
+  busAssignment: any;
 }
 
 const ParentDashboard: React.FC = () => {
+  const [busId, setBusId] = useState<string | null>(null);
   const [location, setLocation] = useState<{ lat: number; lng: number } | null>(null);
-  const [students, setStudents] = useState<Student[]>([]);
+  const [children, setChildren] = useState<ChildBusInfo[]>([]);
+  const [routeStops, setRouteStops] = useState<{ lat: number; lng: number; name: string; time: string }[]>([]);
   const [loading, setLoading] = useState(true);
   const [isLive, setIsLive] = useState(false);
   const [lastUpdated, setLastUpdated] = useState<Date | null>(null);
@@ -44,10 +51,42 @@ const ParentDashboard: React.FC = () => {
   const [attendanceLoading, setAttendanceLoading] = useState<Record<string, boolean>>({});
   const intervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const { user } = useAuth();
+  const { showToast } = useToast();
 
-  const fetchLocation = useCallback(async () => {
+  // Step 1: Resolve bus for parent's children
+  const resolveChildBus = useCallback(async () => {
     try {
-      const res = await axios.get(`${API_BASE_URL}/tracking/${MOCK_BUS_ID}`);
+      const res = await api.get('/buses/my-child-bus');
+      const data: ChildBusInfo[] = res.data;
+      setChildren(data);
+
+      // Get bus ID from first child's assignment
+      if (data.length > 0 && data[0].busAssignment?.busId) {
+        const resolvedBusId = data[0].busAssignment.busId._id || data[0].busAssignment.busId;
+        setBusId(resolvedBusId);
+        return resolvedBusId;
+      }
+      return null;
+    } catch (err) {
+      console.error('Failed to resolve child bus', err);
+      // Fallback: try to find any bus with tracking data
+      try {
+        const allBuses = await api.get('/buses');
+        if (allBuses.data.length > 0) {
+          const first = allBuses.data[0];
+          setBusId(first._id);
+          return first._id;
+        }
+      } catch (e) { /* ignore */ }
+      return null;
+    }
+  }, []);
+
+  const fetchLocation = useCallback(async (targetBusId?: string) => {
+    const id = targetBusId || busId;
+    if (!id) return;
+    try {
+      const res = await api.get(`/tracking/${id}`);
       if (res.data?.lat) {
         setLocation({ lat: res.data.lat, lng: res.data.lng });
         setLastUpdated(new Date());
@@ -56,72 +95,80 @@ const ParentDashboard: React.FC = () => {
     } catch {
       setIsLive(false);
     }
-  }, []);
+  }, [busId]);
 
-  const fetchStudentsAndAttendance = useCallback(async () => {
+  const fetchRouteStops = useCallback(async (targetBusId?: string) => {
+    const id = targetBusId || busId;
+    if (!id) return;
     try {
-      // Fetch students assigned to this bus (this also triggers seeding on backend if empty)
-      let res = await axios.get(`${API_BASE_URL}/buses/${MOCK_BUS_ID}/students`);
-      let studentList = Array.isArray(res.data?.presentStudents || res.data) ? (res.data?.presentStudents || res.data) : [];
-
-      if (user && user.role === 'PARENT') {
-        const hasMatchingChild = studentList.some((s: any) => s.email === user.email || s.name === user.name);
-        if (!hasMatchingChild) {
-           await axios.post(`${API_BASE_URL}/buses/${MOCK_BUS_ID}/students`, {
-             name: user.name,
-             email: user.email
-           });
-           res = await axios.get(`${API_BASE_URL}/buses/${MOCK_BUS_ID}/students`);
-           studentList = Array.isArray(res.data?.presentStudents || res.data) ? (res.data?.presentStudents || res.data) : [];
-        }
-      }
-
-      setStudents(studentList);
-
-      // Fetch attendance for these students
-      for (const student of studentList) {
-        try {
-          const attRes = await axios.get(`${API_BASE_URL}/attendance/${student.id}`);
-          if (attRes.data?.status) {
-            setAttendanceMap(prev => ({ ...prev, [student.id]: attRes.data.status }));
-          }
-        } catch (err) {
-          // No attendance for today yet, which is fine
-        }
+      const res = await api.get(`/buses/${id}/students`);
+      if (res.data?.route) {
+        setRouteStops(res.data.route);
       }
     } catch (err) {
-      console.error('Failed to fetch students/attendance:', err);
+      console.error('Failed to fetch route stops', err);
     }
-  }, [user]);
+  }, [busId]);
+
+  const fetchAttendanceForChildren = useCallback(async (childList: ChildBusInfo[]) => {
+    for (const childInfo of childList) {
+      try {
+        const attRes = await api.get(`/attendance/${childInfo.student.id}`);
+        if (attRes.data?.status) {
+          setAttendanceMap(prev => ({ ...prev, [childInfo.student.id]: attRes.data.status }));
+        }
+      } catch (err) {
+        // No attendance for today yet
+      }
+    }
+  }, []);
 
   useEffect(() => {
     const init = async () => {
-      await Promise.allSettled([fetchLocation(), fetchStudentsAndAttendance()]);
+      const resolvedBusId = await resolveChildBus();
+      if (resolvedBusId) {
+        await Promise.allSettled([
+          fetchLocation(resolvedBusId),
+          fetchRouteStops(resolvedBusId),
+        ]);
+      }
+      // Fetch attendance for resolved children
+      const res = await api.get('/buses/my-child-bus').catch(() => ({ data: [] }));
+      if (res.data.length > 0) {
+        await fetchAttendanceForChildren(res.data);
+      }
       setLoading(false);
     };
     init();
-    intervalRef.current = setInterval(fetchLocation, POLL_INTERVAL);
-    return () => { if (intervalRef.current) clearInterval(intervalRef.current); };
-  }, [fetchLocation, fetchStudentsAndAttendance]);
+  }, [resolveChildBus, fetchLocation, fetchRouteStops, fetchAttendanceForChildren]);
+
+  // Start polling after initial load
+  useEffect(() => {
+    if (busId) {
+      intervalRef.current = setInterval(() => fetchLocation(), POLL_INTERVAL);
+      return () => { if (intervalRef.current) clearInterval(intervalRef.current); };
+    }
+  }, [busId, fetchLocation]);
 
   const markAttendance = async (studentId: string, status: 'PRESENT' | 'ABSENT') => {
     setAttendanceLoading(prev => ({ ...prev, [studentId]: true }));
     try {
-      await axios.post(`${API_BASE_URL}/attendance/mark`, { studentId, status });
+      await api.post('/attendance/mark', { studentId, status });
       setAttendanceMap(prev => ({ ...prev, [studentId]: status }));
+      showToast(`Attendance marked as ${status}`, status === 'PRESENT' ? 'success' : 'info');
     } catch (err) {
       console.error('Attendance update failed:', err);
-      alert('Failed to update attendance. Please try again.');
+      showToast('Failed to update attendance. Please try again.', 'error');
     } finally {
       setAttendanceLoading(prev => ({ ...prev, [studentId]: false }));
     }
   };
 
-  // For the demo: Find the student matching the parent if it exists, otherwise fallback to the first student
-  const parentChild = students.find(s => s.name === user?.name);
-  const myChild = parentChild || (students.length > 0 ? students[0] : null);
-
   const defaultCenter: [number, number] = location ? [location.lat, location.lng] : [40.7128, -74.0060];
+
+  // Build route polyline coordinates
+  const routePolyline: [number, number][] = routeStops.map(s => [s.lat, s.lng]);
+  if (location) routePolyline.unshift([location.lat, location.lng]);
 
   return (
     <div className="max-w-6xl mx-auto space-y-8 font-sans">
@@ -136,7 +183,7 @@ const ParentDashboard: React.FC = () => {
             {isLive ? 'Live' : 'Offline'}
           </div>
           <button
-            onClick={() => { fetchLocation(); fetchStudentsAndAttendance(); }}
+            onClick={() => { fetchLocation(); fetchRouteStops(); }}
             className="p-2 bg-white text-gray-700 border border-gray-200 hover:bg-gray-50 hover:text-gray-900 rounded-lg transition-colors flex items-center gap-2 shadow-sm"
           >
             <RefreshCw className="w-4 h-4" />
@@ -199,6 +246,31 @@ const ParentDashboard: React.FC = () => {
                     </Marker>
                   </>
                 )}
+
+                {/* Route stop markers */}
+                {routeStops.map((stop, i) => (
+                  <Marker key={i} position={[stop.lat, stop.lng]}>
+                    <Popup>
+                      <div className="text-center py-1 font-sans">
+                        <strong className="text-gray-900">📍 {stop.name}</strong>
+                        <p className="text-xs text-gray-500 mt-1">Pickup: {stop.time}</p>
+                      </div>
+                    </Popup>
+                  </Marker>
+                ))}
+
+                {/* Route polyline */}
+                {routePolyline.length > 1 && (
+                  <Polyline
+                    positions={routePolyline}
+                    pathOptions={{
+                      color: '#FFC107',
+                      weight: 4,
+                      opacity: 0.8,
+                      dashArray: '10, 8'
+                    }}
+                  />
+                )}
               </MapContainer>
             )}
           </div>
@@ -215,74 +287,97 @@ const ParentDashboard: React.FC = () => {
         <section className="lg:col-span-2 bg-white border border-gray-100 rounded-2xl p-6 shadow-sm flex flex-col">
           <h3 className="text-lg font-extrabold text-gray-900 mb-5 flex items-center gap-2">
             <Users className="w-5 h-5 text-[#FFC107]" />
-            My Child
+            My Children
           </h3>
 
           <div className="space-y-4 flex-1">
-            {myChild ? (
-              <div
-                key={myChild.id}
-                className="p-4 rounded-xl border border-gray-100 bg-gray-50/50 transition-all hover:border-gray-200 hover:bg-gray-50"
-              >
-                {/* Top row: avatar + name */}
-                <div className="flex items-center gap-3 mb-4">
-                  <div className="w-12 h-12 rounded-full flex items-center justify-center flex-shrink-0 border-2 border-yellow-200 bg-yellow-100 text-yellow-700 font-black text-lg shadow-sm">
-                    {myChild.name.charAt(0)}
-                  </div>
-                  <div className="flex-1 min-w-0">
-                    <h4 className="text-base font-bold text-gray-900 truncate">{myChild.name}</h4>
-                    <p className="text-xs text-gray-500 font-medium">{myChild.email}</p>
-                    <p className="text-xs text-gray-400 mt-1 flex items-center gap-1 font-semibold">
-                      <Clock className="w-3 h-3 text-gray-400" />
-                      Morning Route
-                    </p>
-                  </div>
-                </div>
-
-                {/* Attendance toggle row */}
-                <div className="flex flex-col gap-3 pt-4 border-t border-gray-200">
-                  <span className="text-xs text-gray-500 font-bold uppercase tracking-wider">Today's Attendance</span>
-                  
-                  <div className="flex items-center gap-2">
-                    {attendanceLoading[myChild.id] ? (
-                      <div className="flex items-center gap-2 text-gray-500 text-xs py-2 px-1 font-medium">
-                        <Loader2 className="w-4 h-4 animate-spin" />
-                        Updating status...
+            {children.length > 0 ? (
+              children.map(childInfo => {
+                const child = childInfo.student;
+                return (
+                  <div
+                    key={child.id}
+                    className="p-4 rounded-xl border border-gray-100 bg-gray-50/50 transition-all hover:border-gray-200 hover:bg-gray-50"
+                  >
+                    {/* Top row: avatar + name */}
+                    <div className="flex items-center gap-3 mb-4">
+                      <div className="w-12 h-12 rounded-full flex items-center justify-center flex-shrink-0 border-2 border-yellow-200 bg-yellow-100 text-yellow-700 font-black text-lg shadow-sm">
+                        {child.name.charAt(0)}
                       </div>
-                    ) : (
-                      <>
-                        <button
-                          onClick={() => markAttendance(myChild.id, 'PRESENT')}
-                          className={`flex-1 flex items-center justify-center gap-2 px-4 py-2.5 rounded-lg text-xs font-bold transition-all border ${attendanceMap[myChild.id] === 'PRESENT' ? 'bg-emerald-50 text-emerald-600 border-emerald-200 shadow-sm' : 'bg-white text-gray-600 border-gray-200 hover:bg-gray-50 hover:text-gray-900 shadow-sm'}`}
-                        >
-                          <UserCheck className="w-4 h-4" />
-                          Present
-                        </button>
-                        <button
-                          onClick={() => markAttendance(myChild.id, 'ABSENT')}
-                          className={`flex-1 flex items-center justify-center gap-2 px-4 py-2.5 rounded-lg text-xs font-bold transition-all border ${attendanceMap[myChild.id] === 'ABSENT' ? 'bg-red-50 text-red-600 border-red-200 shadow-sm' : 'bg-white text-gray-600 border-gray-200 hover:bg-gray-50 hover:text-gray-900 shadow-sm'}`}
-                        >
-                          <UserX className="w-4 h-4" />
-                          Absent
-                        </button>
-                      </>
-                    )}
-                  </div>
+                      <div className="flex-1 min-w-0">
+                        <h4 className="text-base font-bold text-gray-900 truncate">{child.name}</h4>
+                        <p className="text-xs text-gray-500 font-medium">{child.email}</p>
+                        <p className="text-xs text-gray-400 mt-1 flex items-center gap-1 font-semibold">
+                          <Clock className="w-3 h-3 text-gray-400" />
+                          Morning Route
+                        </p>
+                      </div>
+                    </div>
 
-                  {attendanceMap[myChild.id] && (
-                    <p className={`text-[10px] uppercase font-black tracking-widest mt-1 text-center ${attendanceMap[myChild.id] === 'PRESENT' ? 'text-emerald-500' : 'text-red-500'}`}>
-                      Confirmed {attendanceMap[myChild.id]} for today
-                    </p>
-                  )}
-                </div>
-              </div>
+                    {/* Attendance toggle row */}
+                    <div className="flex flex-col gap-3 pt-4 border-t border-gray-200">
+                      <span className="text-xs text-gray-500 font-bold uppercase tracking-wider">Today's Attendance</span>
+                      
+                      <div className="flex items-center gap-2">
+                        {attendanceLoading[child.id] ? (
+                          <div className="flex items-center gap-2 text-gray-500 text-xs py-2 px-1 font-medium">
+                            <Loader2 className="w-4 h-4 animate-spin" />
+                            Updating status...
+                          </div>
+                        ) : (
+                          <>
+                            <button
+                              onClick={() => markAttendance(child.id, 'PRESENT')}
+                              className={`flex-1 flex items-center justify-center gap-2 px-4 py-2.5 rounded-lg text-xs font-bold transition-all border ${attendanceMap[child.id] === 'PRESENT' ? 'bg-emerald-50 text-emerald-600 border-emerald-200 shadow-sm' : 'bg-white text-gray-600 border-gray-200 hover:bg-gray-50 hover:text-gray-900 shadow-sm'}`}
+                            >
+                              <UserCheck className="w-4 h-4" />
+                              Present
+                            </button>
+                            <button
+                              onClick={() => markAttendance(child.id, 'ABSENT')}
+                              className={`flex-1 flex items-center justify-center gap-2 px-4 py-2.5 rounded-lg text-xs font-bold transition-all border ${attendanceMap[child.id] === 'ABSENT' ? 'bg-red-50 text-red-600 border-red-200 shadow-sm' : 'bg-white text-gray-600 border-gray-200 hover:bg-gray-50 hover:text-gray-900 shadow-sm'}`}
+                            >
+                              <UserX className="w-4 h-4" />
+                              Absent
+                            </button>
+                          </>
+                        )}
+                      </div>
+
+                      {attendanceMap[child.id] && (
+                        <p className={`text-[10px] uppercase font-black tracking-widest mt-1 text-center ${attendanceMap[child.id] === 'PRESENT' ? 'text-emerald-500' : 'text-red-500'}`}>
+                          Confirmed {attendanceMap[child.id]} for today
+                        </p>
+                      )}
+                    </div>
+                  </div>
+                );
+              })
             ) : (
               <div className="flex flex-col items-center justify-center py-12 px-4 text-center border-2 border-dashed border-gray-200 rounded-2xl bg-gray-50">
                 <Users className="w-10 h-10 text-gray-300 mb-3" />
-                <p className="text-gray-500 text-sm font-medium">No child information found.<br/>Please contact administrator.</p>
+                <p className="text-gray-500 text-sm font-medium">No children linked to your account yet.<br/>Please contact the administrator.</p>
               </div>
             )}
           </div>
+
+          {/* Route Stops Info */}
+          {routeStops.length > 0 && (
+            <div className="mt-6 pt-4 border-t border-gray-100">
+              <h4 className="text-xs font-bold text-gray-400 uppercase tracking-wider mb-3">Route Stops</h4>
+              <div className="space-y-2">
+                {routeStops.map((stop, i) => (
+                  <div key={i} className="flex items-center gap-3 text-xs">
+                    <span className="w-6 h-6 bg-yellow-100 rounded-full flex items-center justify-center text-yellow-700 font-black text-[10px] flex-shrink-0 border border-yellow-200">
+                      {i + 1}
+                    </span>
+                    <span className="text-gray-700 font-semibold flex-1 truncate">{stop.name}</span>
+                    <span className="text-gray-400 font-mono font-bold">{stop.time}</span>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
 
           {lastUpdated && (
             <p className="text-[10px] font-semibold text-gray-400 mt-6 text-center">

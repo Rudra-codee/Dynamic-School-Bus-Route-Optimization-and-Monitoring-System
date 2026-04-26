@@ -1,9 +1,11 @@
 import Attendance, { IAttendance } from '../models/attendance.model';
 import mongoose from 'mongoose';
 import routeOptimizationEngine, { NearestNeighborStrategy } from './routeOptimization.service';
-import User from '../models/user.model';
+import Student from '../models/student.model';
 import Bus from '../models/bus.model';
+import BusAssignment from '../models/busAssignment.model';
 import Route from '../models/route.model';
+import TrafficSimulator from './trafficSimulation.service';
 
 export class AttendanceService {
   /**
@@ -51,6 +53,7 @@ export class AttendanceService {
 
   /**
    * Auto-triggers route re-optimization based on current attendance.
+   * Uses real student locations and traffic simulation.
    * Only present students are assigned to routes.
    */
   private async triggerRouteOptimization(): Promise<void> {
@@ -58,55 +61,78 @@ export class AttendanceService {
       const startOfDay = new Date();
       startOfDay.setHours(0, 0, 0, 0);
 
-      // Get today's present students
-      const presentRecords = await Attendance.find({
-        date: startOfDay,
-        status: 'PRESENT',
-      }).lean();
+      // Get today's attendance records
+      const attendanceRecords = await Attendance.find({ date: startOfDay }).lean();
+      const presentIds = attendanceRecords
+        .filter(r => r.status === 'PRESENT')
+        .map(r => r.studentId.toString());
+      const absentIds = attendanceRecords
+        .filter(r => r.status === 'ABSENT')
+        .map(r => r.studentId.toString());
 
-      const presentStudentIds = presentRecords.map(r => r.studentId.toString());
-
-      const allStudents = await User.find({ role: 'student' }).lean();
+      // Get all active buses
       const buses = await Bus.find({ status: 'active' }).lean();
+      if (buses.length === 0) return;
 
-      if (allStudents.length === 0 || buses.length === 0) return;
+      // For each bus, optimize the route for assigned students
+      for (const bus of buses) {
+        const busId = (bus._id as any).toString();
 
-      const studentInputs = allStudents.map((s, i) => ({
-        id: (s._id as any).toString(),
-        name: s.name,
-        present: presentStudentIds.includes((s._id as any).toString()),
-        location: { lat: 40.7128 + i * 0.01, lng: -74.0060 + i * 0.01 },
-      }));
+        // Get students assigned to this bus
+        const assignments = await BusAssignment.find({
+          busId: bus._id
+        }).lean();
 
-      const busInputs = buses.map(b => ({
-        id: (b._id as any).toString(),
-        capacity: b.capacity,
-      }));
+        if (assignments.length === 0) continue;
 
-      routeOptimizationEngine.setStrategy(new NearestNeighborStrategy());
-      const optimizedRoutes = routeOptimizationEngine.generateOptimizedRoute(studentInputs, busInputs);
+        const studentIds = assignments.map(a => a.studentId);
+        const students = await Student.find({ _id: { $in: studentIds } }).lean();
 
-      // Save optimized routes to the Route model
-      for (const busResult of optimizedRoutes) {
-          const busId = busResult.busId;
-          const stops = busResult.stops.map((s: any) => ({
-              stopName: s.studentName,
-              location: s.location,
-              pickupTimeWindow: { start: '07:00', end: '07:15' } // Default time window
+        if (students.length === 0) continue;
+
+        // Build student inputs with real locations
+        const studentInputs = students.map(s => ({
+          id: (s._id as any).toString(),
+          name: s.name,
+          present: presentIds.includes((s._id as any).toString()) ||
+                   !absentIds.includes((s._id as any).toString()), // unmarked = present
+          location: { lat: s.location.lat, lng: s.location.lng }
+        }));
+
+        const busInputs = [{
+          id: busId,
+          capacity: bus.capacity
+        }];
+
+        // Run optimization
+        routeOptimizationEngine.setStrategy(new NearestNeighborStrategy());
+        const optimizedRoutes = routeOptimizationEngine.generateOptimizedRoute(studentInputs, busInputs);
+
+        // Generate traffic conditions and dynamic pickup windows
+        for (const busResult of optimizedRoutes) {
+          const stopCount = busResult.stops.length;
+          const trafficConditions = TrafficSimulator.simulateTraffic(stopCount, 'MORNING');
+          const pickupWindows = TrafficSimulator.calculatePickupWindows('07:00', stopCount, trafficConditions);
+
+          const stops = busResult.stops.map((s: any, idx: number) => ({
+            stopName: s.studentName,
+            location: s.location,
+            pickupTimeWindow: pickupWindows[idx] || { start: '07:00', end: '07:15' }
           }));
 
           // Upsert route for the bus
           await Route.findOneAndUpdate(
-              { busId: new mongoose.Types.ObjectId(busId) },
-              {
-                  name: `Morning Route - Bus ${busId.substring(0, 4).toUpperCase()}`,
-                  stops: stops
-              },
-              { upsert: true, new: true }
+            { busId: new mongoose.Types.ObjectId(busResult.busId) },
+            {
+              name: `Morning Route - Bus ${busResult.busId.substring(0, 4).toUpperCase()}`,
+              stops: stops
+            },
+            { upsert: true, new: true }
           );
+        }
       }
 
-      console.log(`[Attendance] Route re-optimized and saved: ${optimizedRoutes.length} bus route(s).`);
+      console.log(`[Attendance] Routes re-optimized with traffic simulation for ${buses.length} bus(es).`);
     } catch (err) {
       console.error('[Attendance] Route optimization failed:', err);
     }

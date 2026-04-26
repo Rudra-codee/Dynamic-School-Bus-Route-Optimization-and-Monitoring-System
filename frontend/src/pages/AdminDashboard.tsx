@@ -1,9 +1,9 @@
 import React, { useState, useEffect, useCallback, useRef } from 'react';
-import axios from 'axios';
-import { Bus, Map, Users, AlertTriangle, ChevronRight, Loader2, Info, Clock, AlertCircle } from 'lucide-react';
-
-const API_BASE_URL = import.meta.env.VITE_API_URL as string;
-const POLL_INTERVAL = 5000;
+import api from '../api/axios';
+import { Bus, Map, Users, AlertTriangle, Loader2, Info, Clock, AlertCircle, Zap, Settings } from 'lucide-react';
+import { Link } from 'react-router-dom';
+import { useToast } from '../context/ToastContext';
+import { io, Socket } from 'socket.io-client';
 
 interface DashboardMetrics {
   activeBuses: number;
@@ -33,14 +33,15 @@ const AdminDashboard: React.FC = () => {
   const [fleet, setFleet] = useState<FleetBus[]>([]);
   const [alerts, setAlerts] = useState<Alert[]>([]);
   const [loading, setLoading] = useState(true);
-  const pollTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const socketRef = useRef<Socket | null>(null);
+  const { showToast } = useToast();
 
   const fetchAdminData = useCallback(async () => {
     try {
       const [metricsRes, fleetRes, alertsRes] = await Promise.all([
-        axios.get(`${API_BASE_URL}/admin/metrics`),
-        axios.get(`${API_BASE_URL}/admin/fleet`),
-        axios.get(`${API_BASE_URL}/admin/alerts`)
+        api.get('/admin/metrics'),
+        api.get('/admin/fleet'),
+        api.get('/admin/alerts')
       ]);
       setMetrics(metricsRes.data);
       setFleet(fleetRes.data);
@@ -54,8 +55,25 @@ const AdminDashboard: React.FC = () => {
 
   useEffect(() => {
     fetchAdminData();
-    pollTimerRef.current = setInterval(fetchAdminData, POLL_INTERVAL);
-    return () => { if (pollTimerRef.current) clearInterval(pollTimerRef.current); };
+    
+    // Connect to WebSocket server
+    const socket = io(import.meta.env.VITE_API_URL.replace('/api', ''), {
+      withCredentials: true
+    });
+    socketRef.current = socket;
+
+    // Listen for global fleet events
+    socket.on('fleet_location_update', () => {
+      fetchAdminData(); // Refresh fleet metrics
+    });
+
+    socket.on('fleet_boarding_update', () => {
+      fetchAdminData(); // Refresh boardings
+    });
+
+    return () => { 
+      if (socketRef.current) socketRef.current.disconnect();
+    };
   }, [fetchAdminData]);
 
   if (loading && !metrics) {
@@ -81,9 +99,18 @@ const AdminDashboard: React.FC = () => {
           <h2 className="text-3xl font-black tracking-tight text-gray-900 mb-2">Fleet Monitoring</h2>
           <p className="text-gray-500 font-medium">Live operational oversight of school transit systems.</p>
         </div>
-        <div className="flex items-center gap-2 text-[10px] font-bold bg-[#FFC107] border border-yellow-400 px-4 py-1.5 rounded-full text-gray-900 shadow-sm tracking-widest uppercase">
-          <span className="w-1.5 h-1.5 bg-gray-900 rounded-full animate-pulse" />
-          Real-Time Sync Ready
+        <div className="flex items-center gap-3">
+          <Link
+            to="/admin/manage"
+            className="flex items-center gap-2 px-4 py-2 bg-white border border-gray-200 rounded-xl text-sm font-bold text-gray-600 hover:text-gray-900 hover:border-gray-300 transition-all shadow-sm"
+          >
+            <Settings className="w-4 h-4" />
+            Manage
+          </Link>
+          <div className="flex items-center gap-2 text-[10px] font-bold bg-[#FFC107] border border-yellow-400 px-4 py-1.5 rounded-full text-gray-900 shadow-sm tracking-widest uppercase">
+            <span className="w-1.5 h-1.5 bg-gray-900 rounded-full animate-pulse" />
+            Real-Time Sync Ready
+          </div>
         </div>
       </header>
 
@@ -109,7 +136,7 @@ const AdminDashboard: React.FC = () => {
               <div className="w-2 h-2 bg-[#FFC107] rounded-full" />
               <h3 className="text-lg font-bold text-gray-900">Live Fleet Status</h3>
             </div>
-            <span className="text-[10px] font-mono font-bold tracking-wider text-gray-400">POLL_INT: {POLL_INTERVAL}MS</span>
+            <span className="text-[10px] font-mono font-bold tracking-wider text-emerald-500">WEBSOCKET: CONNECTED</span>
           </div>
           <div className="overflow-x-auto flex-1">
             <table className="w-full text-left">

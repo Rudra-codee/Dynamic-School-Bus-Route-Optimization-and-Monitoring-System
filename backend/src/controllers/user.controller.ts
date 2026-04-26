@@ -6,7 +6,7 @@ class UserController {
   async create(req: Request, res: Response): Promise<void> {
     try {
       // Use Factory Pattern to instantiate the user document
-      const userInstance = UserFactory.createUser(req.body.role || 'PARENT', req.body);
+      const userInstance = await UserFactory.createUser(req.body.role || 'PARENT', req.body);
       
       // Save the factory-created instance to the database
       const savedUser = await userInstance.save();
