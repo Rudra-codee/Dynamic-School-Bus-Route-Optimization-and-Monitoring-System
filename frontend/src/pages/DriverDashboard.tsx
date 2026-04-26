@@ -1,9 +1,9 @@
 import React, { useState, useEffect, useCallback, useRef } from 'react';
-import axios from 'axios';
+import api from '../api/axios';
 import { MapPin, Navigation, UserCheck, UserX, Loader2, CheckCircle2, ChevronRight, Info, AlertCircle } from 'lucide-react';
+import { useAuth } from '../context/AuthContext';
+import { useToast } from '../context/ToastContext';
 
-const API_BASE_URL = import.meta.env.VITE_API_URL as string;
-const MOCK_BUS_ID = '609b11111111111111111111';
 const POLL_INTERVAL = 5000;
 
 interface Student {
@@ -25,61 +25,96 @@ interface BusData {
 }
 
 const DriverDashboard: React.FC = () => {
+  const [busId, setBusId] = useState<string | null>(null);
+  const [busInfo, setBusInfo] = useState<any>(null);
   const [data, setData] = useState<BusData | null>(null);
   const [loading, setLoading] = useState(true);
   const [isUpdatingLocation, setIsUpdatingLocation] = useState(false);
   const [updateStatus, setUpdateStatus] = useState<'idle' | 'success' | 'error'>('idle');
   const [boardingStatuses, setBoardingStatuses] = useState<Record<string, 'BOARDED' | 'NOT_BOARDED'>>({});
   const pollTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const { user } = useAuth();
+  const { showToast } = useToast();
 
-  const fetchBusData = useCallback(async () => {
+  // Step 1: Resolve the bus assigned to this driver
+  const resolveBus = useCallback(async () => {
     try {
-      const res = await axios.get(`${API_BASE_URL}/buses/${MOCK_BUS_ID}/students`);
+      const res = await api.get('/buses/my-bus');
+      setBusId(res.data._id);
+      setBusInfo(res.data);
+      return res.data._id;
+    } catch (err) {
+      console.error('No bus assigned to this driver', err);
+      // Fallback: try to find any active bus
+      try {
+        const allBuses = await api.get('/buses');
+        if (allBuses.data.length > 0) {
+          const first = allBuses.data[0];
+          setBusId(first._id);
+          setBusInfo(first);
+          return first._id;
+        }
+      } catch (e) { /* ignore */ }
+      setLoading(false);
+      return null;
+    }
+  }, []);
+
+  // Step 2: Fetch bus data (students + route)
+  const fetchBusData = useCallback(async (id?: string) => {
+    const targetId = id || busId;
+    if (!targetId) return;
+    try {
+      const res = await api.get(`/buses/${targetId}/students`);
       setData(res.data);
     } catch (err) {
       console.error('Failed to fetch bus data', err);
     } finally {
       setLoading(false);
     }
-  }, []);
+  }, [busId]);
 
   useEffect(() => {
-    fetchBusData();
-    pollTimerRef.current = setInterval(fetchBusData, POLL_INTERVAL);
+    const init = async () => {
+      const resolvedId = await resolveBus();
+      if (resolvedId) {
+        await fetchBusData(resolvedId);
+        pollTimerRef.current = setInterval(() => fetchBusData(resolvedId), POLL_INTERVAL);
+      }
+    };
+    init();
     return () => { if (pollTimerRef.current) clearInterval(pollTimerRef.current); };
-  }, [fetchBusData]);
+  }, [resolveBus, fetchBusData]);
 
   const handleUpdateLocation = async () => {
+    if (!busId) return;
     setIsUpdatingLocation(true);
     setUpdateStatus('idle');
     try {
       const lat = 40.7128 + (Math.random() * 0.01 - 0.005);
       const lng = -74.0060 + (Math.random() * 0.01 - 0.005);
-      await axios.post(`${API_BASE_URL}/tracking/update-location`, {
-        busId: MOCK_BUS_ID,
-        lat,
-        lng
-      });
+      await api.post('/tracking/update-location', { busId, lat, lng });
       setUpdateStatus('success');
+      showToast('GPS coordinates posted successfully', 'success');
       setTimeout(() => setUpdateStatus('idle'), 3000);
     } catch (error) {
       console.error("Location update failed:", error);
       setUpdateStatus('error');
+      showToast('Failed to update location', 'error');
     } finally {
       setIsUpdatingLocation(false);
     }
   };
 
   const markBoarding = async (studentId: string, status: 'BOARDED' | 'NOT_BOARDED') => {
+    if (!busId) return;
     setBoardingStatuses(prev => ({ ...prev, [studentId]: status }));
     try {
-      await axios.post(`${API_BASE_URL}/boarding/mark`, {
-        studentId,
-        busId: MOCK_BUS_ID,
-        status
-      });
+      await api.post('/boarding/mark', { studentId, busId, status });
+      showToast(`Student ${status === 'BOARDED' ? 'boarded' : 'marked absent'}`, status === 'BOARDED' ? 'success' : 'info');
     } catch (error) {
       console.error("Boarding update failed:", error);
+      showToast('Boarding update failed', 'error');
     }
   };
 
@@ -92,6 +127,18 @@ const DriverDashboard: React.FC = () => {
     );
   }
 
+  if (!busId) {
+    return (
+      <div className="flex flex-col items-center justify-center min-h-[400px] text-gray-500 gap-4">
+        <AlertCircle className="w-12 h-12 text-yellow-400" />
+        <h3 className="text-xl font-bold text-gray-900">No Bus Assigned</h3>
+        <p className="text-sm text-gray-500 text-center max-w-md">
+          You don't have a bus assigned yet. Please contact the admin to assign a bus to your account.
+        </p>
+      </div>
+    );
+  }
+
   const presentCount = data?.presentStudents.length || 0;
   const boardedCount = Object.values(boardingStatuses).filter(s => s === 'BOARDED').length;
 
@@ -100,7 +147,9 @@ const DriverDashboard: React.FC = () => {
       <header className="flex flex-col sm:flex-row sm:items-end justify-between gap-4">
         <div>
           <h2 className="text-3xl font-bold tracking-tight text-gray-900 mb-2">Driver Portal</h2>
-          <p className="text-gray-500">Live manifest and route sync enabled.</p>
+          <p className="text-gray-500">
+            Bus <span className="font-bold text-gray-900">{busInfo?.registrationNumber || busId?.substring(0, 8)}</span> · Live manifest and route sync enabled.
+          </p>
         </div>
         <div className="flex items-center gap-2 text-xs font-mono bg-white border border-gray-200 px-4 py-2 rounded-xl text-gray-500 shadow-sm">
           <span className="w-2 h-2 bg-emerald-500 rounded-full animate-pulse" />
@@ -167,7 +216,7 @@ const DriverDashboard: React.FC = () => {
                         </div>
                         <div>
                           <h4 className={`font-bold transition-colors ${isBoarded ? 'text-emerald-700' : 'text-gray-900'}`}>{student.name}</h4>
-                          <p className="text-[10px] text-gray-400 font-mono tracking-tighter">ID: {student.id.toUpperCase()}</p>
+                          <p className="text-[10px] text-gray-400 font-mono tracking-tighter">ID: {student.id.substring(0, 12).toUpperCase()}</p>
                         </div>
                       </div>
                       <div className="flex gap-2">

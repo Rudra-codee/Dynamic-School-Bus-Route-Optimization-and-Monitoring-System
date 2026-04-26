@@ -1,8 +1,9 @@
 import React, { useState, useEffect, useCallback, useRef } from 'react';
-import axios from 'axios';
-import { Bus, Map, Users, AlertTriangle, ChevronRight, Loader2, Info, Clock, AlertCircle } from 'lucide-react';
+import api from '../api/axios';
+import { Bus, Map, Users, AlertTriangle, Loader2, Info, Clock, AlertCircle, Zap, Settings } from 'lucide-react';
+import { Link } from 'react-router-dom';
+import { useToast } from '../context/ToastContext';
 
-const API_BASE_URL = import.meta.env.VITE_API_URL as string;
 const POLL_INTERVAL = 5000;
 
 interface DashboardMetrics {
@@ -33,14 +34,17 @@ const AdminDashboard: React.FC = () => {
   const [fleet, setFleet] = useState<FleetBus[]>([]);
   const [alerts, setAlerts] = useState<Alert[]>([]);
   const [loading, setLoading] = useState(true);
+  const [optimizing, setOptimizing] = useState(false);
+  const [optimizeStrategy, setOptimizeStrategy] = useState('nearest');
   const pollTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const { showToast } = useToast();
 
   const fetchAdminData = useCallback(async () => {
     try {
       const [metricsRes, fleetRes, alertsRes] = await Promise.all([
-        axios.get(`${API_BASE_URL}/admin/metrics`),
-        axios.get(`${API_BASE_URL}/admin/fleet`),
-        axios.get(`${API_BASE_URL}/admin/alerts`)
+        api.get('/admin/metrics'),
+        api.get('/admin/fleet'),
+        api.get('/admin/alerts')
       ]);
       setMetrics(metricsRes.data);
       setFleet(fleetRes.data);
@@ -57,6 +61,19 @@ const AdminDashboard: React.FC = () => {
     pollTimerRef.current = setInterval(fetchAdminData, POLL_INTERVAL);
     return () => { if (pollTimerRef.current) clearInterval(pollTimerRef.current); };
   }, [fetchAdminData]);
+
+  const handleOptimize = async () => {
+    setOptimizing(true);
+    try {
+      const res = await api.post('/routes/optimize-routes', { strategy: optimizeStrategy });
+      showToast(`Routes optimized! ${res.data.routes?.length || 0} bus route(s) updated using ${optimizeStrategy} strategy.`, 'success');
+      fetchAdminData();
+    } catch (err: any) {
+      showToast(err.response?.data?.error || 'Optimization failed', 'error');
+    } finally {
+      setOptimizing(false);
+    }
+  };
 
   if (loading && !metrics) {
     return (
@@ -81,9 +98,18 @@ const AdminDashboard: React.FC = () => {
           <h2 className="text-3xl font-black tracking-tight text-gray-900 mb-2">Fleet Monitoring</h2>
           <p className="text-gray-500 font-medium">Live operational oversight of school transit systems.</p>
         </div>
-        <div className="flex items-center gap-2 text-[10px] font-bold bg-[#FFC107] border border-yellow-400 px-4 py-1.5 rounded-full text-gray-900 shadow-sm tracking-widest uppercase">
-          <span className="w-1.5 h-1.5 bg-gray-900 rounded-full animate-pulse" />
-          Real-Time Sync Ready
+        <div className="flex items-center gap-3">
+          <Link
+            to="/admin/manage"
+            className="flex items-center gap-2 px-4 py-2 bg-white border border-gray-200 rounded-xl text-sm font-bold text-gray-600 hover:text-gray-900 hover:border-gray-300 transition-all shadow-sm"
+          >
+            <Settings className="w-4 h-4" />
+            Manage
+          </Link>
+          <div className="flex items-center gap-2 text-[10px] font-bold bg-[#FFC107] border border-yellow-400 px-4 py-1.5 rounded-full text-gray-900 shadow-sm tracking-widest uppercase">
+            <span className="w-1.5 h-1.5 bg-gray-900 rounded-full animate-pulse" />
+            Real-Time Sync Ready
+          </div>
         </div>
       </header>
 
@@ -100,6 +126,39 @@ const AdminDashboard: React.FC = () => {
           </div>
         ))}
       </div>
+
+      {/* Route Optimization Control */}
+      <section className="bg-white border border-gray-100 p-6 rounded-2xl shadow-sm">
+        <div className="flex flex-col md:flex-row md:items-center justify-between gap-6">
+          <div className="flex items-center gap-4">
+            <div className="p-3 bg-yellow-50 rounded-xl border border-yellow-200/50">
+              <Zap className="w-6 h-6 text-[#FFC107]" />
+            </div>
+            <div>
+              <h3 className="text-lg font-bold text-gray-900">Route Optimization Engine</h3>
+              <p className="text-xs text-gray-500 mt-0.5 font-medium">Re-optimize all bus routes based on current attendance and traffic simulation</p>
+            </div>
+          </div>
+          <div className="flex items-center gap-3">
+            <select
+              value={optimizeStrategy}
+              onChange={e => setOptimizeStrategy(e.target.value)}
+              className="px-4 py-2.5 border border-gray-200 rounded-xl text-sm font-semibold bg-white focus:outline-none focus:ring-2 focus:ring-[#FFC107] focus:border-[#FFC107]"
+            >
+              <option value="nearest">Nearest Neighbor</option>
+              <option value="cluster">Cluster Strategy</option>
+            </select>
+            <button
+              onClick={handleOptimize}
+              disabled={optimizing}
+              className="flex items-center gap-2 px-6 py-2.5 bg-[#FFC107] rounded-xl font-bold text-gray-900 transition-all hover:bg-yellow-400 hover:-translate-y-0.5 shadow-md shadow-[#FFC107]/20 disabled:opacity-50"
+            >
+              {optimizing ? <Loader2 className="w-5 h-5 animate-spin" /> : <Zap className="w-5 h-5" />}
+              {optimizing ? 'Optimizing...' : 'Optimize Routes'}
+            </button>
+          </div>
+        </div>
+      </section>
 
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
         {/* Fleet Table - 2 Columns */}

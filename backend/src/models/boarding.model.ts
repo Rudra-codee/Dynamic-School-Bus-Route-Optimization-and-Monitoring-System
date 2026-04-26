@@ -9,7 +9,7 @@ export interface IBoarding extends Document {
 }
 
 const BoardingSchema: Schema = new Schema({
-  studentId: { type: Schema.Types.ObjectId, ref: 'User', required: true },
+  studentId: { type: Schema.Types.ObjectId, ref: 'Student', required: true },
   busId: { type: Schema.Types.ObjectId, ref: 'Bus', required: true },
   status: { type: String, enum: ['BOARDED', 'NOT_BOARDED'], required: true },
 }, {

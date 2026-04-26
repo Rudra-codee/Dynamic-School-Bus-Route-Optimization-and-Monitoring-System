@@ -1,8 +1,12 @@
 import { Request, Response } from 'express';
 import routeService from '../services/route.service';
 import routeOptimizationEngine, { NearestNeighborStrategy, ClusterStrategy } from '../services/routeOptimization.service';
-import User from '../models/user.model';
+import TrafficSimulator from '../services/trafficSimulation.service';
+import Student from '../models/student.model';
 import Bus from '../models/bus.model';
+import BusAssignment from '../models/busAssignment.model';
+import Route from '../models/route.model';
+import mongoose from 'mongoose';
 
 class RouteController {
   async create(req: Request, res: Response): Promise<void> {
@@ -62,53 +66,93 @@ class RouteController {
     }
   }
 
+  /**
+   * Optimizes routes for all active buses using Student/BusAssignment data
+   * and integrates traffic simulation for realistic scheduling.
+   */
   async optimizeRoutes(req: Request, res: Response): Promise<void> {
     try {
       const strategyName = req.body.strategy || 'nearest';
 
-      // Fetch all buses from DB
+      // Fetch all active buses
       const buses = await Bus.find({ status: 'active' }).lean();
       if (buses.length === 0) {
         res.status(200).json({ message: 'No active buses found', routes: [] });
         return;
       }
 
-      // Fetch all students; seed with fake coords for demo
-      const students = await User.find({ role: 'student' }).lean();
-      if (students.length === 0) {
-        res.status(200).json({ message: 'No students found', routes: [] });
-        return;
-      }
+      const allResults: any[] = [];
+      const allTraffic: any[] = [];
 
-      // Map to StudentInput format with randomized mock coords for demo
-      const studentInputs = students.map((s, i) => ({
-        id: (s._id as any).toString(),
-        name: s.name,
-        present: true,
-        location: {
-          lat: 40.7128 + (i * 0.01),
-          lng: -74.0060 + (i * 0.01)
+      for (const bus of buses) {
+        const busId = (bus._id as any).toString();
+
+        // Get students assigned to this bus
+        const assignments = await BusAssignment.find({ busId: bus._id }).lean();
+        if (assignments.length === 0) continue;
+
+        const studentIds = assignments.map(a => a.studentId);
+        const students = await Student.find({ _id: { $in: studentIds } }).lean();
+        if (students.length === 0) continue;
+
+        // Map to StudentInput format using real coordinates
+        const studentInputs = students.map(s => ({
+          id: (s._id as any).toString(),
+          name: s.name,
+          present: true,
+          location: { lat: s.location.lat, lng: s.location.lng }
+        }));
+
+        // Bus input
+        const busInputs = [{ id: busId, capacity: bus.capacity }];
+
+        // Select strategy dynamically
+        if (strategyName === 'cluster') {
+          routeOptimizationEngine.setStrategy(new ClusterStrategy());
+        } else {
+          routeOptimizationEngine.setStrategy(new NearestNeighborStrategy());
         }
-      }));
 
-      // Map to BusInput format
-      const busInputs = buses.map(b => ({
-        id: (b._id as any).toString(),
-        capacity: b.capacity
-      }));
+        const result = routeOptimizationEngine.generateOptimizedRoute(studentInputs, busInputs);
 
-      // Dynamically select strategy
-      if (strategyName === 'cluster') {
-        routeOptimizationEngine.setStrategy(new ClusterStrategy());
-      } else {
-        routeOptimizationEngine.setStrategy(new NearestNeighborStrategy());
+        // Generate traffic conditions
+        for (const busResult of result) {
+          const stopCount = busResult.stops.length;
+          const trafficConditions = TrafficSimulator.simulateTraffic(stopCount, 'MORNING');
+          const pickupWindows = TrafficSimulator.calculatePickupWindows('07:00', stopCount, trafficConditions);
+          const adjustedTime = TrafficSimulator.calculateAdjustedTime(stopCount * 5, trafficConditions);
+
+          // Save optimized route to DB with dynamic time windows
+          const stops = busResult.stops.map((s: any, idx: number) => ({
+            stopName: s.studentName,
+            location: s.location,
+            pickupTimeWindow: pickupWindows[idx] || { start: '07:00', end: '07:15' }
+          }));
+
+          await Route.findOneAndUpdate(
+            { busId: new mongoose.Types.ObjectId(busResult.busId) },
+            { name: `Morning Route - Bus ${busResult.busId.substring(0, 4).toUpperCase()}`, stops },
+            { upsert: true, new: true }
+          );
+
+          allResults.push({
+            ...busResult,
+            pickupWindows,
+            adjustedTotalMinutes: adjustedTime
+          });
+
+          allTraffic.push({
+            busId: busResult.busId,
+            conditions: trafficConditions
+          });
+        }
       }
-
-      const result = routeOptimizationEngine.generateOptimizedRoute(studentInputs, busInputs);
 
       res.status(200).json({
         strategy: strategyName,
-        routes: result
+        routes: allResults,
+        traffic: allTraffic,
+        message: `Routes optimized and saved for ${allResults.length} bus(es).`
       });
     } catch (error: any) {
       res.status(500).json({ error: error.message });

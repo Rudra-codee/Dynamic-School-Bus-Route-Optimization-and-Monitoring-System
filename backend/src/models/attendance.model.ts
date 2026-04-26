@@ -9,7 +9,7 @@ export interface IAttendance extends Document {
 }
 
 const AttendanceSchema: Schema = new Schema({
-  studentId: { type: Schema.Types.ObjectId, ref: 'User', required: true },
+  studentId: { type: Schema.Types.ObjectId, ref: 'Student', required: true },
   status:    { type: String, enum: ['PRESENT', 'ABSENT'], required: true },
   date:      { type: Date, default: () => {
     const d = new Date();
