@@ -73,9 +73,16 @@ class RouteController {
   async optimizeRoutes(req: Request, res: Response): Promise<void> {
     try {
       const strategyName = req.body.strategy || 'nearest';
+      const busIdParam = req.body.busId; // Optional: specify a single bus
 
-      // Fetch all active buses
-      const buses = await Bus.find({ status: 'active' }).lean();
+      // Fetch buses
+      let buses = [];
+      if (busIdParam) {
+        buses = await Bus.find({ _id: new mongoose.Types.ObjectId(busIdParam) }).lean();
+      } else {
+        buses = await Bus.find({ status: 'active' }).lean();
+      }
+
       if (buses.length === 0) {
         res.status(200).json({ message: 'No active buses found', routes: [] });
         return;
@@ -95,13 +102,30 @@ class RouteController {
         const students = await Student.find({ _id: { $in: studentIds } }).lean();
         if (students.length === 0) continue;
 
-        // Map to StudentInput format using real coordinates
-        const studentInputs = students.map(s => ({
-          id: (s._id as any).toString(),
-          name: s.name,
-          present: true,
-          location: { lat: s.location.lat, lng: s.location.lng }
-        }));
+        // Fetch Boarding status for today
+        const startOfDay = new Date();
+        startOfDay.setHours(0, 0, 0, 0);
+        // Note: mongoose model Boarding needs to be imported or we can do it via mongoose.model
+        const BoardingModel = mongoose.model('Boarding');
+        const boardings = await BoardingModel.find({
+          busId: bus._id,
+          createdAt: { $gte: startOfDay },
+          status: 'BOARDED'
+        }).lean();
+        const boardedStudentIds = boardings.map(b => (b.studentId as any).toString());
+
+        // Map to StudentInput format using real coordinates. Only include BOARDED students.
+        const studentInputs = students
+          .filter(s => boardedStudentIds.includes((s._id as any).toString()))
+          .map(s => ({
+            id: (s._id as any).toString(),
+            name: s.name,
+            present: true,
+            location: { lat: s.location.lat, lng: s.location.lng }
+          }));
+
+        // If no students boarded, skip
+        if (studentInputs.length === 0) continue;
 
         // Bus input
         const busInputs = [{ id: busId, capacity: bus.capacity }];
@@ -128,6 +152,13 @@ class RouteController {
             location: s.location,
             pickupTimeWindow: pickupWindows[idx] || { start: '07:00', end: '07:15' }
           }));
+
+          // Append School location at the end of the route
+          stops.push({
+            stopName: 'Central School, Midtown Manhattan',
+            location: { lat: 40.7580, lng: -73.9855 },
+            pickupTimeWindow: { start: '08:00', end: '08:15' }
+          });
 
           await Route.findOneAndUpdate(
             { busId: new mongoose.Types.ObjectId(busResult.busId) },

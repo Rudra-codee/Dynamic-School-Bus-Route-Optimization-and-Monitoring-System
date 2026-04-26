@@ -78,35 +78,16 @@ async function seed() {
     });
 
     // ── Create Parents ──
-    const parent1 = await User.create({
-      name: 'Alice Parent',
-      email: 'parent1@schoolbus.com',
-      password: hashedPassword,
-      role: 'PARENT'
-    });
+    const parent1 = await User.create({ name: 'Alice Parent', email: 'parent1@schoolbus.com', password: hashedPassword, role: 'PARENT' });
+    const parent2 = await User.create({ name: 'Bob Parent', email: 'parent2@schoolbus.com', password: hashedPassword, role: 'PARENT' });
+    const parent3 = await User.create({ name: 'Carol Parent', email: 'parent3@schoolbus.com', password: hashedPassword, role: 'PARENT' });
+    const parent4 = await User.create({ name: 'David Parent', email: 'parent4@schoolbus.com', password: hashedPassword, role: 'PARENT' });
+    const parent5 = await User.create({ name: 'Eve Parent', email: 'parent5@schoolbus.com', password: hashedPassword, role: 'PARENT' });
+    const parent6 = await User.create({ name: 'Frank Parent', email: 'parent6@schoolbus.com', password: hashedPassword, role: 'PARENT' });
+    const parent7 = await User.create({ name: 'Grace Parent', email: 'parent7@schoolbus.com', password: hashedPassword, role: 'PARENT' });
+    const parent8 = await User.create({ name: 'Henry Parent', email: 'parent8@schoolbus.com', password: hashedPassword, role: 'PARENT' });
 
-    const parent2 = await User.create({
-      name: 'Bob Parent',
-      email: 'parent2@schoolbus.com',
-      password: hashedPassword,
-      role: 'PARENT'
-    });
-
-    const parent3 = await User.create({
-      name: 'Carol Parent',
-      email: 'parent3@schoolbus.com',
-      password: hashedPassword,
-      role: 'PARENT'
-    });
-
-    const parent4 = await User.create({
-      name: 'David Parent',
-      email: 'parent4@schoolbus.com',
-      password: hashedPassword,
-      role: 'PARENT'
-    });
-
-    console.log(`   ✅ Created ${7} users (1 admin, 2 drivers, 4 parents)`);
+    console.log(`   ✅ Created 11 users (1 admin, 2 drivers, 8 parents)`);
 
     // ── Create Buses ──
     console.log('🚌 Creating buses...');
@@ -145,7 +126,7 @@ async function seed() {
     const student2 = await Student.create({
       name: 'Liam Johnson',
       email: 'liam@student.com',
-      parentId: parent1._id,
+      parentId: parent5._id,
       location: STUDENT_LOCATIONS[1],
       grade: '3rd'
     });
@@ -161,7 +142,7 @@ async function seed() {
     const student4 = await Student.create({
       name: 'Noah Brown',
       email: 'noah@student.com',
-      parentId: parent2._id,
+      parentId: parent6._id,
       location: STUDENT_LOCATIONS[3],
       grade: '6th'
     });
@@ -177,7 +158,7 @@ async function seed() {
     const student6 = await Student.create({
       name: 'Mason Wilson',
       email: 'mason@student.com',
-      parentId: parent3._id,
+      parentId: parent7._id,
       location: STUDENT_LOCATIONS[5],
       grade: '5th'
     });
@@ -193,7 +174,7 @@ async function seed() {
     const student8 = await Student.create({
       name: 'Ethan Martinez',
       email: 'ethan@student.com',
-      parentId: parent4._id,
+      parentId: parent8._id,
       location: STUDENT_LOCATIONS[7],
       grade: '3rd'
     });
@@ -297,9 +278,13 @@ async function seed() {
     console.log('  🔑 Parent2: parent2@schoolbus.com');
     console.log('  🔑 Parent3: parent3@schoolbus.com');
     console.log('  🔑 Parent4: parent4@schoolbus.com');
+    console.log('  🔑 Parent5: parent5@schoolbus.com');
+    console.log('  🔑 Parent6: parent6@schoolbus.com');
+    console.log('  🔑 Parent7: parent7@schoolbus.com');
+    console.log('  🔑 Parent8: parent8@schoolbus.com');
     console.log('\n📊 Data Summary:');
-    console.log(`  • ${7} Users  •  ${3} Buses  •  ${8} Students`);
-    console.log(`  • ${8} Attendance  •  ${2} Routes  •  ${3} Alerts`);
+    console.log(`  • 11 Users  •  3 Buses  •  8 Students`);
+    console.log(`  • 8 Attendance  •  2 Routes  •  3 Alerts`);
     console.log(`\n  Bus 1 ID: ${bus1._id}`);
     console.log(`  Bus 2 ID: ${bus2._id}`);
     console.log();

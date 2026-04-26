@@ -3,8 +3,7 @@ import api from '../api/axios';
 import { Bus, Map, Users, AlertTriangle, Loader2, Info, Clock, AlertCircle, Zap, Settings } from 'lucide-react';
 import { Link } from 'react-router-dom';
 import { useToast } from '../context/ToastContext';
-
-const POLL_INTERVAL = 5000;
+import { io, Socket } from 'socket.io-client';
 
 interface DashboardMetrics {
   activeBuses: number;
@@ -34,9 +33,7 @@ const AdminDashboard: React.FC = () => {
   const [fleet, setFleet] = useState<FleetBus[]>([]);
   const [alerts, setAlerts] = useState<Alert[]>([]);
   const [loading, setLoading] = useState(true);
-  const [optimizing, setOptimizing] = useState(false);
-  const [optimizeStrategy, setOptimizeStrategy] = useState('nearest');
-  const pollTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const socketRef = useRef<Socket | null>(null);
   const { showToast } = useToast();
 
   const fetchAdminData = useCallback(async () => {
@@ -58,22 +55,26 @@ const AdminDashboard: React.FC = () => {
 
   useEffect(() => {
     fetchAdminData();
-    pollTimerRef.current = setInterval(fetchAdminData, POLL_INTERVAL);
-    return () => { if (pollTimerRef.current) clearInterval(pollTimerRef.current); };
-  }, [fetchAdminData]);
+    
+    // Connect to WebSocket server
+    const socket = io(import.meta.env.VITE_API_URL.replace('/api', ''), {
+      withCredentials: true
+    });
+    socketRef.current = socket;
 
-  const handleOptimize = async () => {
-    setOptimizing(true);
-    try {
-      const res = await api.post('/routes/optimize-routes', { strategy: optimizeStrategy });
-      showToast(`Routes optimized! ${res.data.routes?.length || 0} bus route(s) updated using ${optimizeStrategy} strategy.`, 'success');
-      fetchAdminData();
-    } catch (err: any) {
-      showToast(err.response?.data?.error || 'Optimization failed', 'error');
-    } finally {
-      setOptimizing(false);
-    }
-  };
+    // Listen for global fleet events
+    socket.on('fleet_location_update', () => {
+      fetchAdminData(); // Refresh fleet metrics
+    });
+
+    socket.on('fleet_boarding_update', () => {
+      fetchAdminData(); // Refresh boardings
+    });
+
+    return () => { 
+      if (socketRef.current) socketRef.current.disconnect();
+    };
+  }, [fetchAdminData]);
 
   if (loading && !metrics) {
     return (
@@ -127,39 +128,6 @@ const AdminDashboard: React.FC = () => {
         ))}
       </div>
 
-      {/* Route Optimization Control */}
-      <section className="bg-white border border-gray-100 p-6 rounded-2xl shadow-sm">
-        <div className="flex flex-col md:flex-row md:items-center justify-between gap-6">
-          <div className="flex items-center gap-4">
-            <div className="p-3 bg-yellow-50 rounded-xl border border-yellow-200/50">
-              <Zap className="w-6 h-6 text-[#FFC107]" />
-            </div>
-            <div>
-              <h3 className="text-lg font-bold text-gray-900">Route Optimization Engine</h3>
-              <p className="text-xs text-gray-500 mt-0.5 font-medium">Re-optimize all bus routes based on current attendance and traffic simulation</p>
-            </div>
-          </div>
-          <div className="flex items-center gap-3">
-            <select
-              value={optimizeStrategy}
-              onChange={e => setOptimizeStrategy(e.target.value)}
-              className="px-4 py-2.5 border border-gray-200 rounded-xl text-sm font-semibold bg-white focus:outline-none focus:ring-2 focus:ring-[#FFC107] focus:border-[#FFC107]"
-            >
-              <option value="nearest">Nearest Neighbor</option>
-              <option value="cluster">Cluster Strategy</option>
-            </select>
-            <button
-              onClick={handleOptimize}
-              disabled={optimizing}
-              className="flex items-center gap-2 px-6 py-2.5 bg-[#FFC107] rounded-xl font-bold text-gray-900 transition-all hover:bg-yellow-400 hover:-translate-y-0.5 shadow-md shadow-[#FFC107]/20 disabled:opacity-50"
-            >
-              {optimizing ? <Loader2 className="w-5 h-5 animate-spin" /> : <Zap className="w-5 h-5" />}
-              {optimizing ? 'Optimizing...' : 'Optimize Routes'}
-            </button>
-          </div>
-        </div>
-      </section>
-
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
         {/* Fleet Table - 2 Columns */}
         <section className="lg:col-span-2 bg-white border border-gray-100 rounded-2xl overflow-hidden shadow-sm flex flex-col">
@@ -168,7 +136,7 @@ const AdminDashboard: React.FC = () => {
               <div className="w-2 h-2 bg-[#FFC107] rounded-full" />
               <h3 className="text-lg font-bold text-gray-900">Live Fleet Status</h3>
             </div>
-            <span className="text-[10px] font-mono font-bold tracking-wider text-gray-400">POLL_INT: {POLL_INTERVAL}MS</span>
+            <span className="text-[10px] font-mono font-bold tracking-wider text-emerald-500">WEBSOCKET: CONNECTED</span>
           </div>
           <div className="overflow-x-auto flex-1">
             <table className="w-full text-left">

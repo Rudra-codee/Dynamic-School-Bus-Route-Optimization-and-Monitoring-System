@@ -14,9 +14,17 @@ export class TrackingService {
     });
     const savedTracking = await tracking.save();
     
-    // Future WebSockets integration:
-    // import { io } from '../server';
-    // io.to(`bus_${busId}`).emit('location_update', { busId, lat, lng });
+    // WebSockets integration
+    import('../socket').then(({ getIO }) => {
+      try {
+        const io = getIO();
+        io.to(`bus_${busId}`).emit('location_update', { busId, lat, lng });
+        // Also emit to a global room for admin dashboard if needed
+        io.emit('fleet_location_update', { busId, lat, lng });
+      } catch (err) {
+        console.error('Socket.io error:', err);
+      }
+    });
     
     return savedTracking;
   }

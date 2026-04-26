@@ -32,9 +32,17 @@ export class BoardingService {
     // Observer Pattern: Notify parents if status changes
     boardingEventNotifier.notify(studentId, status);
 
-    // Future WebSockets integration:
-    // import { io } from '../server';
-    // io.to(`bus_${busId}`).emit('boarding_update', { studentId, busId, status });
+    // WebSockets integration
+    import('../socket').then(({ getIO }) => {
+      try {
+        const io = getIO();
+        io.to(`bus_${busId}`).emit('boarding_update', { studentId, busId, status });
+        io.emit('fleet_boarding_update', { studentId, busId, status });
+      } catch (err) {
+        console.error('Socket.io error:', err);
+      }
+    });
+
     return boarding as IBoarding;
   }
 
